@@ -19,7 +19,7 @@ func main() {
 
 	app := app.NewApp(scriptTimeoutSeconds * time.Second)
 
-	err := app.Run(ctx, maxJobs)
+	err := app.Run(ctx, maxJobs, pollIntervalMilliseconds*time.Millisecond)
 	if err != nil {
 		fmt.Printf("Error running Job Runner: %v", err)
 	}
