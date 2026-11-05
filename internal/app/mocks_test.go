@@ -15,6 +15,9 @@ func (f fakeExecutor) Execute(ctx context.Context, name string, input []byte) ([
 	return f.ExecuteFunc(ctx, name, input)
 }
 
+// fakeJobsClient returns a batch of jobs on GetJobs call and
+// records every posted result. done is closed once each job has a result.
+// mu is a mutex used to prevent concurrent reads/writes
 type fakeJobsClient struct {
 	mu      sync.Mutex
 	batch   []jobs.Job

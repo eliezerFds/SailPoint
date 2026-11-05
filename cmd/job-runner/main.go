@@ -27,10 +27,11 @@ func main() {
 		slog.Warn("Using default log level", logging.KeyError, levelErr)
 	}
 
+	// Context that will allow us to detect shutdown and safely shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	app := app.NewApp(jobsClient{}, executor{}, scriptTimeoutSeconds*time.Second)
+	app := app.NewApp(jobsClient{}, targetService{}, scriptTimeoutSeconds*time.Second)
 
 	err := app.Run(ctx, maxJobs, pollIntervalMilliseconds*time.Millisecond)
 	if err != nil {
@@ -39,7 +40,7 @@ func main() {
 	}
 }
 
-// jobsClient adapts the jobs package to app.JobsClient.
+// Mocks the jobs service to allow us to test
 type jobsClient struct{}
 
 func (jobsClient) GetJobs(ctx context.Context) ([]jobs.Job, error) {
@@ -50,8 +51,9 @@ func (jobsClient) PostResult(ctx context.Context, jobID string, result jobs.Resu
 	return jobs.PostResult(ctx, jobID, result)
 }
 
-type executor struct{}
+// Mocks the target service to allow us to test
+type targetService struct{}
 
-func (executor) Execute(ctx context.Context, name string, input []byte) ([]byte, error) {
+func (targetService) Execute(ctx context.Context, name string, input []byte) ([]byte, error) {
 	return target.Execute(ctx, name, input)
 }

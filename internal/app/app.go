@@ -18,20 +18,21 @@ type JobsClient interface {
 	PostResult(ctx context.Context, jobID string, result jobs.Result) error
 }
 
-type Executor interface {
+// Target runs a named script against a target system.
+type Target interface {
 	Execute(ctx context.Context, name string, input []byte) ([]byte, error)
 }
 
 type jobrunner struct {
 	jobsClient    JobsClient
-	executor      Executor
+	target        Target
 	scriptTimeout time.Duration
 }
 
-func NewApp(jobsClient JobsClient, executor Executor, scriptTimeout time.Duration) *jobrunner {
+func NewApp(jobsClient JobsClient, targetService Target, scriptTimeout time.Duration) *jobrunner {
 	return &jobrunner{
 		jobsClient:    jobsClient,
-		executor:      executor,
+		target:        targetService,
 		scriptTimeout: scriptTimeout,
 	}
 }
@@ -43,11 +44,13 @@ func (a *jobrunner) Run(ctx context.Context, maxJobs int, pollInterval time.Dura
 
 	jobsToProcess := make(chan jobs.Job, maxJobs)
 
+	// Wait until the service is shutting down
 	go func() {
 		<-ctx.Done()
 		slog.Info("Shutdown requested, finishing in-progress jobs")
 	}()
 
+	// Fetch jobs from the jobs service
 	go func() {
 		log := slog.With(logging.KeyComponent, "poller")
 		defer close(jobsToProcess)
@@ -67,6 +70,7 @@ func (a *jobrunner) Run(ctx context.Context, maxJobs int, pollInterval time.Dura
 				}
 			}
 
+			// Stop polling for <pollInterval> amount of time
 			select {
 			case <-time.After(pollInterval):
 			case <-ctx.Done():
@@ -77,11 +81,15 @@ func (a *jobrunner) Run(ctx context.Context, maxJobs int, pollInterval time.Dura
 
 	var wg sync.WaitGroup
 
+	// Start <maxJobs> number of workers to process the jobs concurrently
 	for i := range maxJobs {
 		wg.Add(1)
+		// Creates the worker
 		go func() {
 			workerLog := slog.With(logging.KeyComponent, "worker", logging.KeyWorkerID, i)
 
+			// Processes jobs if the worker is free and there are jobs to process.
+			// If there are no jobs, it just blocks and waits
 			for job := range jobsToProcess {
 				log := workerLog.With(logging.KeyJobID, job.ID, logging.KeyScript, job.Script)
 				log.Debug("Processing job")
@@ -108,6 +116,7 @@ func (a *jobrunner) Run(ctx context.Context, maxJobs int, pollInterval time.Dura
 	return
 }
 
+// Each worker will process a retrieved job by unmarshalling the input to bytes and sending it to the target service
 func (a *jobrunner) processJob(ctx context.Context, job jobs.Job) (map[string]string, error) {
 	input, err := json.Marshal(job.Input)
 	if err != nil {
@@ -117,7 +126,7 @@ func (a *jobrunner) processJob(ctx context.Context, job jobs.Job) (map[string]st
 	execCtx, cancel := context.WithTimeout(ctx, a.scriptTimeout)
 	defer cancel()
 
-	raw, err := a.executor.Execute(execCtx, job.Script, input)
+	raw, err := a.target.Execute(execCtx, job.Script, input)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute target: %w", err)
 	}
