@@ -7,11 +7,12 @@ import (
 	"github.com/sp/job-runner/internal/jobs"
 )
 
-type fakeExecutor struct {
+// fakeTarget lets each test decide what Execute does.
+type fakeTarget struct {
 	ExecuteFunc func(ctx context.Context, name string, input []byte) ([]byte, error)
 }
 
-func (f fakeExecutor) Execute(ctx context.Context, name string, input []byte) ([]byte, error) {
+func (f fakeTarget) Execute(ctx context.Context, name string, input []byte) ([]byte, error) {
 	return f.ExecuteFunc(ctx, name, input)
 }
 

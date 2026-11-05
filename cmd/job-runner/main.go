@@ -16,7 +16,7 @@ import (
 
 const (
 	scriptTimeoutSeconds     = 5
-	pollIntervalMilliseconds = 1
+	pollIntervalMilliseconds = 1000
 	maxJobs                  = 10
 )
 
@@ -31,16 +31,16 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	app := app.NewApp(jobsClient{}, targetService{}, scriptTimeoutSeconds*time.Second)
+	runner := app.NewApp(jobsClient{}, targetService{}, scriptTimeoutSeconds*time.Second)
 
-	err := app.Run(ctx, maxJobs, pollIntervalMilliseconds*time.Millisecond)
+	err := runner.Run(ctx, maxJobs, pollIntervalMilliseconds*time.Millisecond)
 	if err != nil {
 		slog.Error("Job Runner exited with error", logging.KeyError, err)
 		os.Exit(1)
 	}
 }
 
-// Mocks the jobs service to allow us to test
+// jobsClient adapts the jobs package to app.JobsClient.
 type jobsClient struct{}
 
 func (jobsClient) GetJobs(ctx context.Context) ([]jobs.Job, error) {
@@ -51,7 +51,7 @@ func (jobsClient) PostResult(ctx context.Context, jobID string, result jobs.Resu
 	return jobs.PostResult(ctx, jobID, result)
 }
 
-// Mocks the target service to allow us to test
+// targetService adapts target package to app.Target.
 type targetService struct{}
 
 func (targetService) Execute(ctx context.Context, name string, input []byte) ([]byte, error) {

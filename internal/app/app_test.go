@@ -11,7 +11,7 @@ import (
 )
 
 func TestProcessJob_Success(t *testing.T) {
-	exec := fakeExecutor{
+	exec := fakeTarget{
 		ExecuteFunc: func(ctx context.Context, name string, input []byte) ([]byte, error) {
 			if got, want := string(input), `{"user":"alice"}`; got != want {
 				t.Errorf("input = %s, want %s", got, want)
@@ -35,7 +35,7 @@ func TestProcessJob_Success(t *testing.T) {
 
 func TestProcessJob_ExecuteError(t *testing.T) {
 	errScript := errors.New("invalid script")
-	exec := fakeExecutor{
+	exec := fakeTarget{
 		ExecuteFunc: func(ctx context.Context, name string, input []byte) ([]byte, error) {
 			return nil, errScript
 		},
@@ -49,7 +49,7 @@ func TestProcessJob_ExecuteError(t *testing.T) {
 }
 
 func TestProcessJob_Timeout(t *testing.T) {
-	exec := fakeExecutor{
+	exec := fakeTarget{
 		ExecuteFunc: func(ctx context.Context, name string, input []byte) ([]byte, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
@@ -68,7 +68,7 @@ func TestRun_PostsResultForEachJob(t *testing.T) {
 		{ID: "ok", Script: "create_user"},
 		{ID: "bad", Script: "delete_user"},
 	})
-	exec := fakeExecutor{
+	exec := fakeTarget{
 		ExecuteFunc: func(ctx context.Context, name string, input []byte) ([]byte, error) {
 			if name == "delete_user" {
 				return nil, errors.New("invalid script")
