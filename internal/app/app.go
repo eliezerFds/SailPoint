@@ -13,6 +13,12 @@ import (
 	"github.com/sp/job-runner/internal/logging"
 )
 
+const (
+	maxPollBackoff   = 30 * time.Second
+	maxPostAttempts  = 3
+	postRetryBackoff = 200 * time.Millisecond
+)
+
 // JobsClient fetches jobs from the Jobs service and posts their results back.
 type JobsClient interface {
 	GetJobs(ctx context.Context) ([]jobs.Job, error)
@@ -32,8 +38,8 @@ type JobRunner struct {
 	scriptTimeout time.Duration
 }
 
-// NewApp returns a JobRunner that uses jobsClient and targetService and provides a timeout.
-func NewApp(jobsClient JobsClient, targetService Target, scriptTimeout time.Duration) *JobRunner {
+// NewJobRunner returns a JobRunner that uses jobsClient and targetService and provides a timeout.
+func NewJobRunner(jobsClient JobsClient, targetService Target, scriptTimeout time.Duration) *JobRunner {
 	return &JobRunner{
 		jobsClient:    jobsClient,
 		target:        targetService,
@@ -73,6 +79,8 @@ func (a *JobRunner) Run(ctx context.Context, maxJobs int, pollInterval time.Dura
 		wait := pollInterval
 		for {
 			retrievedJobs, err := a.jobsClient.GetJobs(ctx)
+			// Decide how long to wait before the next poll: back off after a failure,
+			// reset after a success.
 			switch {
 			case err != nil && ctx.Err() != nil:
 				log.Debug("Poll interrupted by shutdown", logging.KeyJobCount, len(retrievedJobs))
@@ -133,12 +141,6 @@ func (a *JobRunner) Run(ctx context.Context, maxJobs int, pollInterval time.Dura
 	return nil
 }
 
-const (
-	maxPollBackoff   = 30 * time.Second
-	maxPostAttempts  = 3
-	postRetryBackoff = 200 * time.Millisecond
-)
-
 // postResult posts a job's result with exponential backoff.
 func (a *JobRunner) postResult(ctx context.Context, jobID string, result jobs.Result) error {
 	backoff := postRetryBackoff
@@ -172,7 +174,7 @@ func (a *JobRunner) processJob(ctx context.Context, job jobs.Job) (map[string]st
 
 	raw, err := a.target.Execute(execCtx, job.Script, input)
 	if err != nil {
-		return nil, fmt.Errorf("execute script: %w", err)
+		return nil, fmt.Errorf("run script: %w", err)
 	}
 
 	var output map[string]string

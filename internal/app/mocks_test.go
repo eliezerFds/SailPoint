@@ -9,11 +9,11 @@ import (
 
 // fakeTarget lets each test decide what Execute does.
 type fakeTarget struct {
-	ExecuteFunc func(ctx context.Context, name string, input []byte) ([]byte, error)
+	executeFunc func(ctx context.Context, name string, input []byte) ([]byte, error)
 }
 
 func (f fakeTarget) Execute(ctx context.Context, name string, input []byte) ([]byte, error) {
-	return f.ExecuteFunc(ctx, name, input)
+	return f.executeFunc(ctx, name, input)
 }
 
 // fakeJobsClient returns a batch of jobs on GetJobs call and

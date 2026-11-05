@@ -12,14 +12,14 @@ import (
 
 func TestProcessJob_Success(t *testing.T) {
 	exec := fakeTarget{
-		ExecuteFunc: func(ctx context.Context, name string, input []byte) ([]byte, error) {
+		executeFunc: func(ctx context.Context, name string, input []byte) ([]byte, error) {
 			if got, want := string(input), `{"user":"alice"}`; got != want {
 				t.Errorf("input = %s, want %s", got, want)
 			}
 			return []byte(`{"status":"success","user":"alice"}`), nil
 		},
 	}
-	a := NewApp(nil, exec, time.Second)
+	a := NewJobRunner(nil, exec, time.Second)
 
 	job := jobs.Job{ID: "1", Script: "create_user", Input: map[string]string{"user": "alice"}}
 	output, err := a.processJob(context.Background(), job)
@@ -36,11 +36,11 @@ func TestProcessJob_Success(t *testing.T) {
 func TestProcessJob_ExecuteError(t *testing.T) {
 	errScript := errors.New("invalid script")
 	exec := fakeTarget{
-		ExecuteFunc: func(ctx context.Context, name string, input []byte) ([]byte, error) {
+		executeFunc: func(ctx context.Context, name string, input []byte) ([]byte, error) {
 			return nil, errScript
 		},
 	}
-	a := NewApp(nil, exec, time.Second)
+	a := NewJobRunner(nil, exec, time.Second)
 
 	_, err := a.processJob(context.Background(), jobs.Job{ID: "1", Script: "delete_user"})
 	if !errors.Is(err, errScript) {
@@ -50,12 +50,12 @@ func TestProcessJob_ExecuteError(t *testing.T) {
 
 func TestProcessJob_Timeout(t *testing.T) {
 	exec := fakeTarget{
-		ExecuteFunc: func(ctx context.Context, name string, input []byte) ([]byte, error) {
+		executeFunc: func(ctx context.Context, name string, input []byte) ([]byte, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
 	}
-	a := NewApp(nil, exec, 10*time.Millisecond)
+	a := NewJobRunner(nil, exec, 10*time.Millisecond)
 
 	_, err := a.processJob(context.Background(), jobs.Job{ID: "1", Script: "lock_user"})
 	if !errors.Is(err, context.DeadlineExceeded) {
@@ -69,14 +69,14 @@ func TestRun_PostsResultForEachJob(t *testing.T) {
 		{ID: "bad", Script: "delete_user"},
 	})
 	exec := fakeTarget{
-		ExecuteFunc: func(ctx context.Context, name string, input []byte) ([]byte, error) {
+		executeFunc: func(ctx context.Context, name string, input []byte) ([]byte, error) {
 			if name == "delete_user" {
 				return nil, errors.New("invalid script")
 			}
 			return []byte(`{"status":"success"}`), nil
 		},
 	}
-	a := NewApp(client, exec, time.Second)
+	a := NewJobRunner(client, exec, time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

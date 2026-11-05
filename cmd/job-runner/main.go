@@ -31,7 +31,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	runner := app.NewApp(jobsClient{}, targetService{}, scriptTimeoutSeconds*time.Second)
+	runner := app.NewJobRunner(jobsClient{}, targetService{}, scriptTimeoutSeconds*time.Second)
 
 	err := runner.Run(ctx, maxJobs, pollIntervalMilliseconds*time.Millisecond)
 	if err != nil {
