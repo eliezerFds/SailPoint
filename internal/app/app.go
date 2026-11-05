@@ -10,15 +10,28 @@ import (
 
 	"github.com/sp/job-runner/internal/jobs"
 	"github.com/sp/job-runner/internal/logging"
-	"github.com/sp/job-runner/internal/target"
 )
 
+// JobsClient fetches jobs from the Jobs service and posts their results back.
+type JobsClient interface {
+	GetJobs(ctx context.Context) ([]jobs.Job, error)
+	PostResult(ctx context.Context, jobID string, result jobs.Result) error
+}
+
+type Executor interface {
+	Execute(ctx context.Context, name string, input []byte) ([]byte, error)
+}
+
 type jobrunner struct {
+	jobsClient    JobsClient
+	executor      Executor
 	scriptTimeout time.Duration
 }
 
-func NewApp(scriptTimeout time.Duration) *jobrunner {
+func NewApp(jobsClient JobsClient, executor Executor, scriptTimeout time.Duration) *jobrunner {
 	return &jobrunner{
+		jobsClient:    jobsClient,
+		executor:      executor,
 		scriptTimeout: scriptTimeout,
 	}
 }
@@ -26,13 +39,21 @@ func NewApp(scriptTimeout time.Duration) *jobrunner {
 func (a *jobrunner) Run(ctx context.Context, maxJobs int, pollInterval time.Duration) (err error) {
 	slog.Info("Starting Job Runner", logging.KeyWorkers, maxJobs, logging.KeyPollInterval, pollInterval.String(), logging.KeyScriptTimeout, a.scriptTimeout.String())
 
+	workCtx := context.WithoutCancel(ctx)
+
 	jobsToProcess := make(chan jobs.Job, maxJobs)
+
+	go func() {
+		<-ctx.Done()
+		slog.Info("Shutdown requested, finishing in-progress jobs")
+	}()
 
 	go func() {
 		log := slog.With(logging.KeyComponent, "poller")
 		defer close(jobsToProcess)
+		defer log.Info("Stopped polling for jobs")
 		for {
-			retrievedJobs, err := jobs.GetJobs(ctx)
+			retrievedJobs, err := a.jobsClient.GetJobs(ctx)
 			if err != nil {
 				log.Warn("Failed to get jobs", logging.KeyError, err)
 			} else {
@@ -55,7 +76,6 @@ func (a *jobrunner) Run(ctx context.Context, maxJobs int, pollInterval time.Dura
 	}()
 
 	var wg sync.WaitGroup
-	defer wg.Wait()
 
 	for i := range maxJobs {
 		wg.Add(1)
@@ -67,7 +87,7 @@ func (a *jobrunner) Run(ctx context.Context, maxJobs int, pollInterval time.Dura
 				log.Debug("Processing job")
 
 				var result jobs.Result
-				output, err := a.processJob(ctx, job)
+				output, err := a.processJob(workCtx, job)
 				if err != nil {
 					log.Warn("Failed to process job", logging.KeyError, err)
 					result = jobs.Result{Success: false, Error: err.Error()}
@@ -75,7 +95,7 @@ func (a *jobrunner) Run(ctx context.Context, maxJobs int, pollInterval time.Dura
 					result = jobs.Result{Success: true, Output: output}
 				}
 
-				if err := jobs.PostResult(ctx, job.ID, result); err != nil {
+				if err := a.jobsClient.PostResult(workCtx, job.ID, result); err != nil {
 					log.Error("Failed to post result", logging.KeyError, err)
 				}
 			}
@@ -83,6 +103,8 @@ func (a *jobrunner) Run(ctx context.Context, maxJobs int, pollInterval time.Dura
 		}()
 	}
 
+	wg.Wait()
+	slog.Info("Job Runner stopped")
 	return
 }
 
@@ -95,7 +117,7 @@ func (a *jobrunner) processJob(ctx context.Context, job jobs.Job) (map[string]st
 	execCtx, cancel := context.WithTimeout(ctx, a.scriptTimeout)
 	defer cancel()
 
-	raw, err := target.Execute(execCtx, job.Script, input)
+	raw, err := a.executor.Execute(execCtx, job.Script, input)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute target: %w", err)
 	}

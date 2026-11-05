@@ -4,10 +4,14 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/sp/job-runner/internal/app"
+	"github.com/sp/job-runner/internal/jobs"
 	"github.com/sp/job-runner/internal/logging"
+	"github.com/sp/job-runner/internal/target"
 )
 
 const (
@@ -23,13 +27,31 @@ func main() {
 		slog.Warn("Using default log level", logging.KeyError, levelErr)
 	}
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	app := app.NewApp(scriptTimeoutSeconds * time.Second)
+	app := app.NewApp(jobsClient{}, executor{}, scriptTimeoutSeconds*time.Second)
 
 	err := app.Run(ctx, maxJobs, pollIntervalMilliseconds*time.Millisecond)
 	if err != nil {
 		slog.Error("Job Runner exited with error", logging.KeyError, err)
 		os.Exit(1)
 	}
+}
+
+// jobsClient adapts the jobs package to app.JobsClient.
+type jobsClient struct{}
+
+func (jobsClient) GetJobs(ctx context.Context) ([]jobs.Job, error) {
+	return jobs.GetJobs(ctx)
+}
+
+func (jobsClient) PostResult(ctx context.Context, jobID string, result jobs.Result) error {
+	return jobs.PostResult(ctx, jobID, result)
+}
+
+type executor struct{}
+
+func (executor) Execute(ctx context.Context, name string, input []byte) ([]byte, error) {
+	return target.Execute(ctx, name, input)
 }

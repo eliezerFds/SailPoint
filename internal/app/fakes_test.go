@@ -1,0 +1,54 @@
+package app
+
+import (
+	"context"
+	"sync"
+
+	"github.com/sp/job-runner/internal/jobs"
+)
+
+type fakeExecutor struct {
+	ExecuteFunc func(ctx context.Context, name string, input []byte) ([]byte, error)
+}
+
+func (f fakeExecutor) Execute(ctx context.Context, name string, input []byte) ([]byte, error) {
+	return f.ExecuteFunc(ctx, name, input)
+}
+
+type fakeJobsClient struct {
+	mu      sync.Mutex
+	batch   []jobs.Job
+	fetched bool
+	posted  map[string]jobs.Result
+	done    chan struct{}
+}
+
+func newFakeJobsClient(batch []jobs.Job) *fakeJobsClient {
+	return &fakeJobsClient{
+		batch:  batch,
+		posted: make(map[string]jobs.Result),
+		done:   make(chan struct{}),
+	}
+}
+
+func (f *fakeJobsClient) GetJobs(ctx context.Context) ([]jobs.Job, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.fetched {
+		return nil, nil
+	}
+	f.fetched = true
+	return f.batch, nil
+}
+
+func (f *fakeJobsClient) PostResult(ctx context.Context, jobID string, result jobs.Result) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.posted[jobID] = result
+	if len(f.posted) == len(f.batch) {
+		close(f.done)
+	}
+	return nil
+}
